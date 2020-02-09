@@ -29,7 +29,7 @@ func (api *PrivateMinerAPI) Start() (bool, error) {
 	if api.s.miner.IsMining() {
 		return true, miner.ErrMinerIsRunning
 	}
-
+	api.s.miner.SetMinerStopperFalse()
 	return true, api.s.miner.Start()
 }
 
@@ -47,6 +47,7 @@ func (api *PrivateMinerAPI) Stop() (bool, error) {
 	if !api.s.miner.IsMining() {
 		return true, miner.ErrMinerIsStopped
 	}
+	api.s.miner.SetMinerStopperTrue()
 	api.s.miner.Stop()
 
 	return true, nil

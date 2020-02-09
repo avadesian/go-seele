@@ -109,6 +109,9 @@ func (miner *Miner) GetCoinbase() common.Address {
 
 // Start is used to start the miner
 func (miner *Miner) Start() error {
+
+	miner.stopChan = make(chan struct{})
+
 	if atomic.LoadInt32(&miner.mining) == 1 {
 		miner.log.Info("Miner is running")
 		return ErrMinerIsRunning
@@ -118,15 +121,11 @@ func (miner *Miner) Start() error {
 		miner.log.Info("Can not start miner when syncing")
 		return ErrNodeIsSyncing
 	}
-
 	// CAS to ensure only 1 mining goroutine.
 	if !atomic.CompareAndSwapInt32(&miner.mining, 0, 1) {
 		miner.log.Info("Another goroutine has already started to mine")
 		return nil
 	}
-
-	miner.stopChan = make(chan struct{})
-
 	if istanbul, ok := miner.engine.(consensus.Istanbul); ok {
 		if err := istanbul.Start(miner.seele.BlockChain(), miner.seele.BlockChain().CurrentBlock, nil); err != nil {
 			panic(fmt.Sprintf("failed to start istanbul engine: %v", err))
@@ -170,14 +169,21 @@ func (miner *Miner) stopMining() {
 	// notify all threads to terminate
 	if miner.stopChan != nil {
 		close(miner.stopChan)
-		miner.stopChan = nil
+		//miner.stopChan = nil
 	}
 
 	// wait for all threads to terminate
 	miner.wg.Wait()
 	miner.log.Info("Miner is stopped.")
 }
-
+// for manually set miner stop
+func (miner *Miner) SetMinerStopperTrue(){
+	atomic.StoreInt32(&miner.stopper, 1)
+}
+// for manually set miner can start
+func (miner *Miner) SetMinerStopperFalse() {
+	atomic.StoreInt32(&miner.stopper, 0)
+}
 // IsMining returns true if the miner is started, otherwise false
 func (miner *Miner) IsMining() bool {
 	return atomic.LoadInt32(&miner.mining) == 1
@@ -208,11 +214,16 @@ func (miner *Miner) downloaderEventCallback(e event.Event) {
 func (miner *Miner) newTxOrDebtCallback(e event.Event) {
 	// if not mining, start mining
 	if atomic.LoadInt32(&miner.stopped) == 0 && atomic.LoadInt32(&miner.canStart) == 1 && atomic.CompareAndSwapInt32(&miner.mining, 0, 1) {
+		miner.log.Info("newTxOrDebtCallback start miner")
 		if err := miner.prepareNewBlock(miner.recv); err != nil {
 			miner.log.Warn(err.Error())
 			atomic.StoreInt32(&miner.mining, 0)
 		}
 	}
+	//if atomic.LoadInt32(&miner.stopped) == 0 && atomic.LoadInt32(&miner.stopper) == 0 {
+	//	miner.log.Info("got newTxOrDebt, start miner")
+	//	miner.Start()
+	//}
 }
 
 // waitBlock waits for blocks to be mined continuously
