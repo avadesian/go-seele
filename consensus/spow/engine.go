@@ -491,6 +491,7 @@ func (engine *SpowEngine) MSeal(reader consensus.ChainReader, block *types.Block
 		} else {
 			max = math.MaxUint64
 		}
+		engine.log.Info("tSeed:%d, tmin:%d,tmax:%d", tSeed,min,max)
 
 		go func(tseed uint64, tmin uint64, tmax uint64) {
 			engine.MStartMining(block, tseed, tmin, tmax, results, stop, &isNonceFound, once, engine.hashrate, engine.log)
@@ -538,20 +539,31 @@ miner:
 
 			// isBegining: fresh start or nonce reverse: make sure nonce verify is right
 			if isBegining == true { // there is no matrix yet
-				if nonce+uint64(dim) >= max { // reach out of tail, reverse
+				//if nonce+uint64(dim) >= max { // reach out of tail, reverse
+				if nonce + uint64(dim) > math.MaxUint64  || nonce > max{
+					// in case initial seed + dim exceeds MaxUint64 or max, should set nonce begin from min
 					nonce = min
 				}
+
 				header.Witness = []byte(strconv.FormatUint(nonce, 10))
 				hash = header.Hash()
 				matrix = newMatrix(header, nonce, dim, log)
 				isBegining = false
 			} else {
-				if nonce+uint64(dim) >= max { // reach out of tail, reverse
+				//if nonce+uint64(dim) >= max { // reach out of tail, reverse
+				// here we should use nonce > max, instead of nonce + dim > = max,
+				// because for multi-threads nodes, suppose max value is 100,
+				// when nonce reaches 70, 70 + 30 >=100, and it will back to min, which will miss nonce value from 70 to 100
+				if nonce > max {
 					nonce = min
+					matrix = newMatrix(header, nonce, dim, log)
 				}
 				matrix = submatCopyByRow(header, matrix, 1, dim, nonce)
 				header.Witness = []byte(strconv.FormatUint(nonce-uint64(dim-1), 10))
 				hash = header.Hash()
+			}
+			if caltimes % 1000 == 0 {
+				log.Warn("height:%d,nonce:%d",header.Height,nonce)
 			}
 			res, count := engine.calDetmLoopForMining(matrix, dim, target, log)
 			restInt := int64(res)
